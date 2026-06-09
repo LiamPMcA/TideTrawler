@@ -1,0 +1,145 @@
+/* Reset & base */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: times new roman, serif;
+  color: #333;
+  margin: 0;
+  padding: 2rem;
+  background: linear-gradient(to top, #1a1a2e, #4a6ece); /* outer ring color */
+}
+
+.wrapper {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  background-color: #f9f9f9; /* inner section color */
+  border-radius: 8px; /* optional: rounds the corners */
+  min-height: 100vh;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.button {
+  border: none;
+  color: white;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+}
+.button1 {background-color: #04AA6D;} /* Green */
+
+.tide-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+#tides {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.tide-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1 1 280px;
+  min-width: 280px;
+}
+
+.tide-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  text-decoration: none;
+  color: #4a7fa5;
+  transition: background-color 0.2s;
+}
+
+.tide-card:hover {
+  background-color: #f0f0f0;
+}
+
+.card-icon {
+  width: 60px;
+  height: 60px;
+  background-color: #4a7fa5;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  flex-shrink: 0;
+}
+
+.card-text h3 {
+  margin: 0 0 0.2rem 0;
+  font-size: 1.1rem;
+}
+
+.card-text p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #777;
+}
+
+.inline-row {
+  display: flex;
+  align-items: center;  /* vertically centers them */
+  gap: 1rem;            /* space between text and button */
+}
+
+/* Apply it to elements */
+.animate {
+  animation: slideUp 0.6s ease forwards;
+}
+
+.center-text {
+      text-align: center;
+}
+
+/* Nav */
+nav {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+nav a {
+  text-decoration: none;
+  color: #555;
+}
+
+nav a:hover {
+  color: #000;
+}
+
+/* Sections */
+section {
+  margin-bottom: 3rem;
+}
+
+h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+h2 { font-size: 1.5rem; margin-bottom: 1rem; }

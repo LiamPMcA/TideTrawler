@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TideTrawler</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="wrapper">
+    <nav>
+      <a href="/">Home</a>
+      <a href="/projects.html">Projects</a>
+      <a href="/blog.html">Blog</a>
+    </nav>
+    <section id="tide-chart">
+      <h2 class="animate ">Tides for today in Norwalk, CT</h2>
+      <canvas id="tideChart"></canvas>
+      <p class="animate center-text" id="chart-loading">Loading tide data...</p>
+    </section>
+
+<div class="tide-layout">
+    <section id="tides">
+       <h2 class="animate ">Tide specifics</h2>
+       <p class="animate "><strong>Current Date:</strong> <span id="current-date">--</span></p>
+       <p class="animate "><strong>Water Temperature:</strong> <span id="water-temp">Loading...</span></p>
+       <p class="animate "><strong>Water Level:</strong> <span id="water-level">Loading...</span></p>
+       <p class="animate "><strong>Tide Prediction:</strong> <span id="tide-prediction">Loading...</span></p>
+       <p class="animate "><strong>Next High Tide:</strong> <span id="next-high">Loading...</span></p>
+       <p class="animate "><strong>Next Low Tide:</strong> <span id="next-low">Loading...</span></p>
+       <p class="animate "><strong>Tide Status:</strong> <span id="tide-status">Loading...</span></p>
+       <p class="animate "><strong>Last Updated:</strong> <span id="last-updated">--</span></p>
+    </section>
+
+    <div class="tide-cards">
+
+    <a href="/blog.html" class="tide-card">
+      <div class="card-text">
+        <h3>Monthly Tide Chart</h3>
+        <p>for South Norwalk, CT</p>
+      </div>
+    </a>
+    <a href="/blog.html" class="tide-card">
+      <div class="card-text">
+        <h3>Header2</h3>
+        <p>T</p>
+      </div>
+    </a>
+    <a href="/blog.html" class="tide-card">
+      <div class="card-text">
+        <h3>Header3</h3>
+        <p>T</p>
+      </div>
+    </a>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+<script src="app.js"></script>
+  </body>
+</html>
