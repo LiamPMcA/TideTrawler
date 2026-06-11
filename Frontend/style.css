@@ -147,7 +147,7 @@ nav a.active {
 
 .chart-container {
   position: relative;
-  height: 360px;
+  height: 400px;
   width: 100%;
 }
 
@@ -213,10 +213,6 @@ nav a.active {
   padding: 0.85rem 1rem;
 }
 
-.stat-card.wide {
-  grid-column: 1 / -1;
-}
-
 .stat-label {
   display: block;
   font-size: 0.75rem;
@@ -233,26 +229,17 @@ nav a.active {
   color: var(--ocean-deep);
 }
 
-.status-pill {
-  display: inline-block;
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.95rem !important;
+.stat-status-bar {
+  text-align: center;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.25rem;
 }
 
-.status-good {
-  background: #d1fae5;
-  color: #065f46 !important;
-}
-
-.status-caution {
-  background: #ffedd5;
-  color: #9a3412 !important;
-}
-
-.status-low {
-  background: #e0f2fe;
-  color: #075985 !important;
+.stat-status-text {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ocean-deep);
 }
 
 .detail-list {
