@@ -95,6 +95,28 @@ body {
   color: var(--ocean-deep);
 }
 
+.site-header--solo {
+  justify-content: center;
+  border-bottom: none;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0;
+}
+
+.site-header--solo .brand {
+  justify-content: center;
+  text-align: center;
+}
+
+.tide-card--static {
+  cursor: default;
+}
+
+.tide-card--static:hover {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
 /* Nav */
 nav {
   display: flex;
@@ -147,7 +169,7 @@ nav a.active {
 
 .chart-container {
   position: relative;
-  height: 400px;
+  height: 480px;
   width: 100%;
 }
 

@@ -4,6 +4,10 @@ const path = require('path');
 const app = express();
 app.use(express.static(path.join(__dirname, '../frontend')));
 
+app.get(['/blog.html', '/projects.html'], (req, res) => {
+  res.redirect('/');
+});
+
 const NORWALK = '8468448';
 const BRIDGEPORT = '8467150';
 const NOAA_BASE = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';

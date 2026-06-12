@@ -3,34 +3,111 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Whatever dude</title>
+    <title>TideTrawler — Norwalk, CT</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
   </head>
-  <body>
-    <div class="wrapper">
-    <nav>
-      <a href="/">Home</a>
-      <a href="/projects.html">Projects</a>
-      <a href="/blog.html">Blog</a>
-    </nav>
+  <body class="tide-page">
+    <div class="wrapper tide-wrapper">
+      <header class="site-header site-header--solo">
+        <div class="brand">
+          <span class="brand-icon">🌊</span>
+          <div>
+            <p class="brand-label">TideTrawler</p>
+            <h1>Norwalk, Connecticut</h1>
+          </div>
+        </div>
+      </header>
 
-    <section id="hero">
-       <h1 class="animate">Hi, I'm Liam</h1>
-      <p class="animate">I'm a student learning web development.</p>
-    </section>
+      <section id="tide-chart" class="chart-panel animate">
+        <div class="panel-header">
+          <h2>Today&apos;s Tide Curve</h2>
+          <p>Live NOAA data for South Norwalk &amp; Bridgeport stations</p>
+        </div>
+        <div class="chart-container">
+          <canvas id="tideChart"></canvas>
+          <p class="chart-loading" id="chart-loading">Loading tide data...</p>
+        </div>
+      </section>
 
-    <section id="about">
-      <h2 class="animate">About Me</h2>
-      <p class="animate">Guy, codes, badly.</p>
-    </section>
+      <div class="tide-layout">
+        <section id="tides" class="stats-panel animate">
+          <h2>Live Conditions</h2>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <span class="stat-label">Water Temp</span>
+              <span class="stat-value" id="water-temp">Loading...</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Water Level</span>
+              <span class="stat-value" id="water-level">Loading...</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Prediction</span>
+              <span class="stat-value" id="tide-prediction">Loading...</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Air Temp</span>
+              <span class="stat-value" id="air-temp">Loading...</span>
+            </div>
+          </div>
 
-    <footer>
-      <p class="animate">© 2026 Liam (according to witnesses)</p>
-      <br>
-      <img src="\images\mammoth-goated.png" alt="Me" class-"animate-1">
-    </footer>
+          <div class="stat-card stat-status-bar" id="tide-status-bar">
+            <span class="stat-label">Status</span>
+            <p class="stat-status-text" id="tide-status">Loading...</p>
+          </div>
 
-    <script src="app.js"></script>
+          <div class="detail-list">
+            <div class="detail-row">
+              <span>Date</span>
+              <strong id="current-date">--</strong>
+            </div>
+            <div class="detail-row">
+              <span>Next High</span>
+              <strong id="next-high">Loading...</strong>
+            </div>
+            <div class="detail-row">
+              <span>Next Low</span>
+              <strong id="next-low">Loading...</strong>
+            </div>
+            <div class="detail-row">
+              <span>Last Updated</span>
+              <strong id="last-updated">--</strong>
+            </div>
+          </div>
+        </section>
+
+        <aside class="tide-cards animate">
+          <h2>Coming Soon</h2>
+          <div class="tide-card tide-card--static">
+            <span class="card-icon">📅</span>
+            <div class="card-text">
+              <h3>Monthly Tide Chart</h3>
+              <p>South Norwalk, CT</p>
+            </div>
+          </div>
+          <div class="tide-card tide-card--static">
+            <span class="card-icon">🗺️</span>
+            <div class="card-text">
+              <h3>Harbor Map</h3>
+              <p>Launch points &amp; access</p>
+            </div>
+          </div>
+          <div class="tide-card tide-card--static">
+            <span class="card-icon">🌡️</span>
+            <div class="card-text">
+              <h3>Water Alerts</h3>
+              <p>Swim-safe notifications</p>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+    <script src="app.js"></script>
   </body>
 </html>

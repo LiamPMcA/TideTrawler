@@ -52,37 +52,6 @@ function interpolateAt(points, targetMinutes) {
   return null;
 }
 
-function nearestPoint(points, targetMinutes) {
-  if (!points.length) return null;
-
-  return points.reduce((closest, point) => {
-    return Math.abs(point.x - targetMinutes) < Math.abs(closest.x - targetMinutes)
-      ? point
-      : closest;
-  });
-}
-
-function resolveCurrentLevel(current, predictionPoints, actualPoints, nowMinutes) {
-  const apiLevel = parseFloat(current?.level?.v);
-  const predictedNow = interpolateAt(predictionPoints, nowMinutes);
-  const nearestActual = nearestPoint(actualPoints, nowMinutes);
-
-  if (!Number.isNaN(apiLevel)) {
-    const predictionDiff = predictedNow == null ? 0 : Math.abs(apiLevel - predictedNow);
-    const actualDiff = nearestActual ? Math.abs(apiLevel - nearestActual.y) : 0;
-
-    if (predictedNow != null && predictionDiff <= 2) return apiLevel;
-    if (nearestActual && actualDiff <= 1.5) return apiLevel;
-  }
-
-  if (nearestActual && nowMinutes - nearestActual.x <= 36) {
-    return nearestActual.y;
-  }
-
-  if (predictedNow != null) return predictedNow;
-  return Number.isNaN(apiLevel) ? null : apiLevel;
-}
-
 function showChartLoading(message) {
   const loadingEl = document.getElementById('chart-loading');
   if (loadingEl) {
@@ -187,14 +156,30 @@ function formatLive(value, suffix = '') {
   return `${n.toFixed(2)}${suffix}`;
 }
 
-async function updateTideDisplay() {
+function mergeActualWithLatest(actualPoints, levelReading, nowMinutes) {
+  const latestY = parseFloat(levelReading.v);
+  const latestMinutes = timeToMinutes(levelReading.t.split(' ')[1]);
+
+  if (Number.isNaN(latestY)) {
+    return { linePoints: actualPoints, dotY: null, dotX: nowMinutes };
+  }
+
+  const linePoints = actualPoints.filter(
+    p => Math.abs(p.x - latestMinutes) > 2 && Math.abs(p.x - nowMinutes) > 2
+  );
+
+  linePoints.push({ x: latestMinutes, y: latestY });
+  if (nowMinutes > latestMinutes + 0.5) {
+    linePoints.push({ x: nowMinutes, y: latestY });
+  }
+
+  linePoints.sort((a, b) => a.x - b.x);
+  return { linePoints, dotY: latestY, dotX: nowMinutes };
+}
+
+function applyCurrentConditions(data) {
   const tempEl = document.getElementById('water-temp');
   if (!tempEl) return;
-
-  const response = await fetch('/api/tides');
-  if (!response.ok) return;
-
-  const data = await response.json();
 
   document.getElementById('water-temp').textContent = `${formatLive(data.temperature.v)}°F`;
   document.getElementById('water-level').textContent = `${formatLive(data.level.v)} Ft`;
@@ -219,6 +204,16 @@ async function updateTideDisplay() {
   } else {
     statusEl.textContent = 'Low tide';
   }
+}
+
+async function updateTideDisplay() {
+  const tempEl = document.getElementById('water-temp');
+  if (!tempEl) return;
+
+  const response = await fetch('/api/tides');
+  if (!response.ok) return;
+
+  applyCurrentConditions(await response.json());
 }
 
 async function drawTideChart() {
@@ -248,6 +243,7 @@ async function drawTideChart() {
     }
 
     chartRetryCount = 0;
+    applyCurrentConditions(current);
 
     const predictionPoints = predictions.map(p => ({
       x: timeToMinutes(p.t.split(' ')[1]),
@@ -261,6 +257,21 @@ async function drawTideChart() {
       }))
       .filter(p => !Number.isNaN(p.y))
       .sort((a, b) => a.x - b.x);
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    const { linePoints: actualLine, dotY, dotX } = mergeActualWithLatest(
+      actualPoints,
+      current.level,
+      nowMinutes
+    );
+
+    if (dotY == null) {
+      throw new Error('Could not resolve current water level');
+    }
+
+    const currentLevel = dotY;
+    const currentPoint = { x: dotX, y: dotY };
 
     const waveHighPoints = [];
     const waveLowPoints = [];
@@ -288,20 +299,6 @@ async function drawTideChart() {
         label: `${h.type === 'H' ? 'High' : 'Low'} ${formatClockTime(time)} · ${predicted.toFixed(1)} Ft`
       };
     });
-
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    const currentLevel = resolveCurrentLevel(current, predictionPoints, actualPoints, nowMinutes);
-
-    if (currentLevel == null) {
-      throw new Error('Could not resolve current water level');
-    }
-
-    const nowOnActual = interpolateAt(actualPoints, nowMinutes);
-    const currentPoint = {
-      x: nowMinutes,
-      y: nowOnActual ?? currentLevel
-    };
 
     const annotations = {};
     if (currentLevel >= 5) {
@@ -359,11 +356,11 @@ async function drawTideChart() {
           },
           {
             label: 'Actual Water Level',
-            data: actualPoints,
+            data: actualLine,
             borderColor: '#334155',
             backgroundColor: 'rgba(51, 65, 85, 0.08)',
             fill: true,
-            tension: 0.25,
+            tension: 0.15,
             pointRadius: 0,
             spanGaps: false,
             datalabels: { display: false }
@@ -515,7 +512,8 @@ async function drawTideChart() {
             }
           },
           y: {
-            grace: '10%',
+            min: 0,
+            grace: '8%',
             title: {
               display: true,
               text: 'Height (Ft)',
@@ -523,7 +521,10 @@ async function drawTideChart() {
               color: '#475569'
             },
             grid: { color: 'rgba(148, 163, 184, 0.25)' },
-            ticks: { font: { size: 11 } }
+            ticks: {
+              font: { size: 11 },
+              callback: (value) => value < 0 ? '' : value
+            }
           }
         }
       }
@@ -589,9 +590,7 @@ updateCurrentDate();
 if (document.getElementById('tideChart')) {
   drawTideChart();
   setInterval(drawTideChart, 360000);
-}
-
-if (document.getElementById('water-temp')) {
+} else if (document.getElementById('water-temp')) {
   updateTideDisplay();
   setInterval(updateTideDisplay, 360000);
 }
