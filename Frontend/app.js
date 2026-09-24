@@ -177,6 +177,24 @@ function mergeActualWithLatest(actualPoints, levelReading, nowMinutes) {
   return { linePoints, dotY: latestY, dotX: nowMinutes };
 }
 
+function parseNoaaTimestamp(timestamp) {
+  const [datePart, timePart] = timestamp.split(' ');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  return new Date(year, month - 1, day, hours, minutes);
+}
+
+function formatLatestDataTime(data) {
+  const readings = [data.level, data.temperature, data.airTemperature]
+    .filter(reading => reading?.t)
+    .map(reading => parseNoaaTimestamp(reading.t));
+
+  if (!readings.length) return '--';
+
+  const newest = new Date(Math.max(...readings.map(d => d.getTime())));
+  return newest.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 function applyCurrentConditions(data) {
   const tempEl = document.getElementById('water-temp');
   if (!tempEl) return;
@@ -192,7 +210,10 @@ function applyCurrentConditions(data) {
       : '--';
   }
 
-  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+  const lastUpdatedEl = document.getElementById('last-updated');
+  if (lastUpdatedEl) {
+    lastUpdatedEl.textContent = formatLatestDataTime(data);
+  }
 
   const level = parseFloat(data.level.v);
   const statusEl = document.getElementById('tide-status');
@@ -587,15 +608,17 @@ async function updateHiLo() {
 
 updateCurrentDate();
 
+const REFRESH_MS = 360000; // 6 min — matches NOAA's ~6-minute reading interval
+
 if (document.getElementById('tideChart')) {
   drawTideChart();
-  setInterval(drawTideChart, 360000);
+  setInterval(drawTideChart, REFRESH_MS);
 } else if (document.getElementById('water-temp')) {
   updateTideDisplay();
-  setInterval(updateTideDisplay, 360000);
+  setInterval(updateTideDisplay, REFRESH_MS);
 }
 
 if (document.getElementById('next-high')) {
   updateHiLo();
-  setInterval(updateHiLo, 360000);
+  setInterval(updateHiLo, REFRESH_MS);
 }

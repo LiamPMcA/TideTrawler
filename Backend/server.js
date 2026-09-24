@@ -13,6 +13,8 @@ const BRIDGEPORT = '8467150';
 const NOAA_BASE = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';
 const NOAA_PARAMS = 'units=english&time_zone=lst_ldt&datum=MLLW&format=json';
 const MIN_DAY_POINTS = 100;
+const MAX_PREDICTION_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 1000;
 
 async function fetchNoaa(query) {
   const response = await fetch(`${NOAA_BASE}?${query}&${NOAA_PARAMS}`);
@@ -42,7 +44,7 @@ function nearestPrediction(predictions) {
   });
 }
 
-async function fetchTodayPredictions(retries = 5) {
+async function fetchTodayPredictions(retries = MAX_PREDICTION_ATTEMPTS) {
   let predictions = null;
 
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -53,7 +55,10 @@ async function fetchTodayPredictions(retries = 5) {
     if (predictions?.length >= MIN_DAY_POINTS) {
       return predictions;
     }
-    await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+    if (attempt < retries - 1) {
+      const delay = RETRY_BASE_DELAY_MS * 2 ** attempt;
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
 
   return predictions;
