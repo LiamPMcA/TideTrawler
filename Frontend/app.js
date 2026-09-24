@@ -10,216 +10,330 @@ function updateCurrentDate() {
   }
 }
 
-async function updateTideDisplay() {
-  const response = await fetch('/api/tides');
-  const data = await response.json();
+function timeToMinutes(timeStr) {
+  const [hours, minutes, seconds = '0'] = timeStr.split(':');
+  return parseInt(hours, 10) * 60 + parseInt(minutes, 10) + parseInt(seconds, 10) / 60;
+}
 
-  document.getElementById('water-temp').textContent = `${data.temperature.v}°F`;
-  document.getElementById('water-level').textContent = `${data.level.v} ft`;
-  document.getElementById('tide-prediction').textContent = `${data.prediction.v} ft`;
-  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+function formatClockTime(timeStr) {
+  const [hours, minutes] = timeStr.split(':');
+  const h = parseInt(hours, 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${minutes} ${ampm}`;
+}
 
-  const level = parseFloat(data.level.v);
-  const statusEl = document.getElementById('tide-status');
+function formatAxisTime(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = Math.floor(minutes % 60);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
 
-  if (level >= 5) {
-    statusEl.textContent = 'Tide is high, good for swimming';
-  } else if (level >= 4) {
-    statusEl.textContent = 'Possible, be cautious of water level';
+function interpolateAt(points, targetMinutes) {
+  if (!points.length) return null;
+
+  const sorted = [...points].sort((a, b) => a.x - b.x);
+  if (targetMinutes <= sorted[0].x) return sorted[0].y;
+  if (targetMinutes >= sorted[sorted.length - 1].x) return sorted[sorted.length - 1].y;
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const left = sorted[i];
+    const right = sorted[i + 1];
+    if (targetMinutes >= left.x && targetMinutes <= right.x) {
+      const range = right.x - left.x;
+      if (range === 0) return left.y;
+      const progress = (targetMinutes - left.x) / range;
+      return left.y + (right.y - left.y) * progress;
+    }
+  }
+
+  return null;
+}
+
+function showChartLoading(message) {
+  const loadingEl = document.getElementById('chart-loading');
+  if (loadingEl) {
+    loadingEl.textContent = message;
+    loadingEl.style.display = 'block';
   }
 }
 
-let tideChart = null;
-
-// Register ChartDataLabels if available
-if (typeof ChartDataLabels !== 'undefined') {
-  Chart.register(ChartDataLabels);
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Request failed: ${url} (${response.status})`);
+  }
+  return response.json();
 }
 
-// Custom annotation plugin for Chart.js v3+
+const MIN_PREDICTIONS = 100;
+let tideChart = null;
+let chartDrawing = false;
+let chartRetryCount = 0;
+
+if (typeof ChartDataLabels !== 'undefined') {
+  Chart.register(ChartDataLabels);
+  Chart.defaults.set('plugins.datalabels', {
+    clip: false,
+    clamp: true
+  });
+}
+
 const annotationPlugin = {
   id: 'customAnnotations',
   afterDatasetsDraw(chart) {
     const ctx = chart.ctx;
+    const { chartArea } = chart;
     const yScale = chart.scales.y;
-    
-    if (!chart.options.plugins?.customAnnotations?.annotations) {
-      return;
+    const xScale = chart.scales.x;
+    const plugins = chart.options.plugins?.customAnnotations;
+    if (!plugins) return;
+
+    if (plugins.nowMinutes != null) {
+      const x = xScale.getPixelForValue(plugins.nowMinutes);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(15, 76, 129, 0.35)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.restore();
     }
-    
-    const annotations = chart.options.plugins.customAnnotations.annotations;
-    
+
+    const annotations = plugins.annotations || {};
     Object.values(annotations).forEach(annotation => {
-      if (annotation.type === 'line' && annotation.yMin !== undefined) {
-        const y = yScale.getPixelForValue(annotation.yMin);
-        
-        ctx.save();
-        ctx.strokeStyle = annotation.borderColor || 'black';
-        ctx.lineWidth = annotation.borderWidth || 1;
-        if (annotation.borderDash) {
-          ctx.setLineDash(annotation.borderDash);
-        }
-        
+      if (annotation.type !== 'line' || annotation.yMin === undefined) return;
+
+      const y = yScale.getPixelForValue(annotation.yMin);
+      ctx.save();
+      ctx.strokeStyle = annotation.borderColor || '#333';
+      ctx.lineWidth = annotation.borderWidth || 2;
+      if (annotation.borderDash) ctx.setLineDash(annotation.borderDash);
+
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+
+      if (annotation.label?.display && annotation.label.content) {
+        const text = annotation.label.content;
+        const fontSize = annotation.label.font?.size || 12;
+        ctx.font = `600 ${fontSize}px "Segoe UI", sans-serif`;
+        const metrics = ctx.measureText(text);
+        const padX = 8;
+        const padY = 5;
+        const boxW = metrics.width + padX * 2;
+        const boxH = fontSize + padY * 2;
+        const boxX = chartArea.right - boxW - 8;
+        const boxY = y - boxH / 2;
+
+        ctx.fillStyle = annotation.label.bgColor || 'rgba(255, 255, 255, 0.92)';
+        ctx.strokeStyle = annotation.borderColor || '#333';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
         ctx.beginPath();
-        ctx.moveTo(chart.chartArea.left, y);
-        ctx.lineTo(chart.chartArea.right, y);
+        ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+        ctx.fill();
         ctx.stroke();
-        
-        if (annotation.label?.display && annotation.label.content) {
-          ctx.font = `${annotation.label.font?.weight || 'normal'} ${annotation.label.font?.size || 12}px ${annotation.label.font?.family || 'sans-serif'}`;
-          ctx.fillStyle = annotation.label.color || 'black';
-          ctx.fillText(annotation.label.content, chart.chartArea.left + 10, y - 10);
-        }
-        
-        ctx.restore();
+
+        ctx.fillStyle = annotation.label.color || '#111';
+        ctx.fillText(text, boxX + padX, boxY + boxH - padY - 2);
       }
+
+      ctx.restore();
     });
   }
 };
 Chart.register(annotationPlugin);
 
+function formatLive(value, suffix = '') {
+  const n = parseFloat(value);
+  if (Number.isNaN(n)) return '--';
+  return `${n.toFixed(2)}${suffix}`;
+}
+
+function mergeActualWithLatest(actualPoints, levelReading, nowMinutes) {
+  const latestY = parseFloat(levelReading.v);
+  const latestMinutes = timeToMinutes(levelReading.t.split(' ')[1]);
+
+  if (Number.isNaN(latestY)) {
+    return { linePoints: actualPoints, dotY: null, dotX: nowMinutes };
+  }
+
+  const linePoints = actualPoints.filter(
+    p => Math.abs(p.x - latestMinutes) > 2 && Math.abs(p.x - nowMinutes) > 2
+  );
+
+  linePoints.push({ x: latestMinutes, y: latestY });
+  if (nowMinutes > latestMinutes + 0.5) {
+    linePoints.push({ x: nowMinutes, y: latestY });
+  }
+
+  linePoints.sort((a, b) => a.x - b.x);
+  return { linePoints, dotY: latestY, dotX: nowMinutes };
+}
+
+function parseNoaaTimestamp(timestamp) {
+  const [datePart, timePart] = timestamp.split(' ');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  return new Date(year, month - 1, day, hours, minutes);
+}
+
+function formatLatestDataTime(data) {
+  const readings = [data.level, data.temperature, data.airTemperature]
+    .filter(reading => reading?.t)
+    .map(reading => parseNoaaTimestamp(reading.t));
+
+  if (!readings.length) return '--';
+
+  const newest = new Date(Math.max(...readings.map(d => d.getTime())));
+  return newest.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function applyCurrentConditions(data) {
+  const tempEl = document.getElementById('water-temp');
+  if (!tempEl) return;
+
+  document.getElementById('water-temp').textContent = `${formatLive(data.temperature.v)}°F`;
+  document.getElementById('water-level').textContent = `${formatLive(data.level.v)} Ft`;
+  document.getElementById('tide-prediction').textContent = `${formatLive(data.prediction.v)} Ft`;
+
+  const airTempEl = document.getElementById('air-temp');
+  if (airTempEl) {
+    airTempEl.textContent = data.airTemperature?.v
+      ? `${formatLive(data.airTemperature.v)}°F`
+      : '--';
+  }
+
+  const lastUpdatedEl = document.getElementById('last-updated');
+  if (lastUpdatedEl) {
+    lastUpdatedEl.textContent = formatLatestDataTime(data);
+  }
+
+  const level = parseFloat(data.level.v);
+  const statusEl = document.getElementById('tide-status');
+
+  if (level >= 5) {
+    statusEl.textContent = 'High tide — good for swimming';
+  } else if (level >= 4) {
+    statusEl.textContent = 'Moderate — use caution';
+  } else {
+    statusEl.textContent = 'Low tide';
+  }
+}
+
+async function updateTideDisplay() {
+  const tempEl = document.getElementById('water-temp');
+  if (!tempEl) return;
+
+  const response = await fetch('/api/tides');
+  if (!response.ok) return;
+
+  applyCurrentConditions(await response.json());
+}
+
 async function drawTideChart() {
+  const canvas = document.getElementById('tideChart');
+  if (!canvas || chartDrawing) return;
+
+  chartDrawing = true;
+
   try {
-    const [predictionsRes, currentRes, levelRes, hiloRes] = await Promise.all([
-      fetch('/api/tides/day'),
-      fetch('/api/tides'),
-      fetch('/api/tides/day/level'),
-      fetch('/api/tides/hilo')
+    const [predictions, current, levels, hiloData] = await Promise.all([
+      fetchJson('/api/tides/day'),
+      fetchJson('/api/tides'),
+      fetchJson('/api/tides/day/level'),
+      fetchJson('/api/tides/hilo')
     ]);
 
-    const predictions = await predictionsRes.json();
-    const current = await currentRes.json();
-    const levels = await levelRes.json();
-    const hiloData = await hiloRes.json(); 
-
-    console.log('predictions:', predictions);
-    console.log('current:', current);
-    console.log('levels:', levels);
-
-    if (!predictions || !Array.isArray(predictions) || predictions.length === 0) {
-      console.log('predictions not ready, retrying...');
-      setTimeout(drawTideChart, 1000);
-      return;
-    }
-    if (!current || !current.level || !current.level.t) {
-      console.log('current not ready, retrying...');
-      setTimeout(drawTideChart, 1000);
-      return;
-    }
-    if (!levels || !Array.isArray(levels) || levels.length === 0) {
-      console.log('levels not ready, retrying...');
-      setTimeout(drawTideChart, 1000);
-      return;
+    if (
+      !Array.isArray(predictions) ||
+      predictions.length < MIN_PREDICTIONS ||
+      !current?.level?.t ||
+      !Array.isArray(levels) ||
+      levels.length < 10 ||
+      !Array.isArray(hiloData) ||
+      !hiloData.length
+    ) {
+      throw new Error('Incomplete tide data received');
     }
 
-    const labels = predictions.map(p => {
-      const [hours, minutes] = p.t.split(' ')[1].split(':');
-      const h = parseInt(hours);
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      const h12 = h % 12 || 12;
-      return `${h12}:${minutes} ${ampm}`;
-    });
+    chartRetryCount = 0;
+    applyCurrentConditions(current);
 
-    const predictionValues = predictions.map(p => parseFloat(p.v));
+    const predictionPoints = predictions.map(p => ({
+      x: timeToMinutes(p.t.split(' ')[1]),
+      y: parseFloat(p.v)
+    }));
 
-    const levelMap = {};
-    levels.forEach(l => {
-      levelMap[l.t.split(' ')[1]] = parseFloat(l.v);
-    });
+    const actualPoints = levels
+      .map(l => ({
+        x: timeToMinutes(l.t.split(' ')[1]),
+        y: parseFloat(l.v)
+      }))
+      .filter(p => !Number.isNaN(p.y))
+      .sort((a, b) => a.x - b.x);
 
-    const actualValues = predictions.map(p => {
-      const time = p.t.split(' ')[1];
-      return levelMap[time] !== undefined ? levelMap[time] : null;
-    });
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    const { linePoints: actualLine, dotY, dotX } = mergeActualWithLatest(
+      actualPoints,
+      current.level,
+      nowMinutes
+    );
 
-    const waveHighPoints = new Array(predictions.length).fill(null);
-    const waveLowPoints = new Array(predictions.length).fill(null);
-    for (let i = 1; i < predictionValues.length - 1; i++) {
-      const prev = predictionValues[i - 1];
-      const curr = predictionValues[i];
-      const next = predictionValues[i + 1];
-      if (curr !== null && prev !== null && next !== null) {
-        if (curr > prev && curr >= next) {
-          waveHighPoints[i] = curr;
-        }
-        if (curr < prev && curr <= next) {
-          waveLowPoints[i] = curr;
-        }
+    if (dotY == null) {
+      throw new Error('Could not resolve current water level');
+    }
+
+    const currentLevel = dotY;
+    const currentPoint = { x: dotX, y: dotY };
+
+    const waveHighPoints = [];
+    const waveLowPoints = [];
+    for (let i = 1; i < predictionPoints.length - 1; i++) {
+      const prev = predictionPoints[i - 1].y;
+      const curr = predictionPoints[i].y;
+      const next = predictionPoints[i + 1].y;
+      if (curr > prev && curr >= next) {
+        waveHighPoints.push({ x: predictionPoints[i].x, y: curr });
+      }
+      if (curr < prev && curr <= next) {
+        waveLowPoints.push({ x: predictionPoints[i].x, y: curr });
       }
     }
 
-    // Build prediction hilo dots
-const predHiloDots = new Array(predictions.length).fill(null);
-hiloData.forEach(h => {
-  const hiloTime = h.t.split(' ')[1];
-  const idx = predictions.findIndex(p => p.t.split(' ')[1] === hiloTime);
-  if (idx !== -1) predHiloDots[idx] = parseFloat(h.v);
-});
-
-// Build actual hilo dots — only where actual data exists
-const actualHiloDots = new Array(predictions.length).fill(null);
-hiloData.forEach(h => {
-  const hiloTime = h.t.split(' ')[1];
-  const idx = predictions.findIndex(p => p.t.split(' ')[1] === hiloTime);
-  if (idx !== -1 && actualValues[idx] !== null) {
-    actualHiloDots[idx] = actualValues[idx];
-  }
-});
-
-// Build labels for hilo points
-const hiloLabels = new Array(predictions.length).fill(null);
-hiloData.forEach(h => {
-  const hiloTime = h.t.split(' ')[1];
-  const idx = predictions.findIndex(p => p.t.split(' ')[1] === hiloTime);
-  if (idx !== -1) {
-    const [hours, minutes] = hiloTime.split(':');
-    const hh = parseInt(hours);
-    const ampm = hh >= 12 ? 'PM' : 'AM';
-    const h12 = hh % 12 || 12;
-    hiloLabels[idx] = `${h12}:${minutes} ${ampm} (${parseFloat(h.v).toFixed(1)}ft)`;
-  }
-});
-    const now = new Date();
-    const currentHours = now.getHours().toString().padStart(2, '0');
-    const currentMinutes = now.getMinutes().toString().padStart(2, '0');
-    const currentTime = `${currentHours}:${currentMinutes}`;
-
-    const currentIndex = predictions.reduce((closestIdx, p, idx) => {
-      const predTime = p.t.split(' ')[1];
-      const predMinutes = parseInt(predTime.split(':')[0]) * 60 + parseInt(predTime.split(':')[1]);
-      const currMinutes = parseInt(currentTime.split(':')[0]) * 60 + parseInt(currentTime.split(':')[1]);
-      const closestTime = predictions[closestIdx].t.split(' ')[1];
-      const closestMinutes = parseInt(closestTime.split(':')[0]) * 60 + parseInt(closestTime.split(':')[1]);
-      return Math.abs(predMinutes - currMinutes) < Math.abs(closestMinutes - currMinutes) ? idx : closestIdx;
-    }, 0);
-
-    console.log('currentTime:', currentTime);
-    console.log('currentIndex:', currentIndex);
-
-    const currentDot = new Array(predictions.length).fill(null);
-    currentDot[currentIndex] = actualValues[currentIndex] !== null
-      ? actualValues[currentIndex]
-      : parseFloat(current.level.v);
-
-    // BUILD DYNAMIC ANNOTATIONS HERE
-    const currentLevel = actualValues[currentIndex] !== null
-      ? actualValues[currentIndex]
-      : parseFloat(current.level.v);
+    const hiloPoints = hiloData.map(h => {
+      const time = h.t.split(' ')[1];
+      const x = timeToMinutes(time);
+      const predicted = parseFloat(h.v);
+      const onCurve = interpolateAt(predictionPoints, x);
+      return {
+        x,
+        y: onCurve ?? predicted,
+        type: h.type,
+        label: `${h.type === 'H' ? 'High' : 'Low'} ${formatClockTime(time)} · ${predicted.toFixed(1)} Ft`
+      };
+    });
 
     const annotations = {};
     if (currentLevel >= 5) {
       annotations.highLine = {
         type: 'line',
         yMin: 5,
-        yMax: 5,
-        borderColor: 'green',
+        borderColor: '#1b8a5a',
         borderWidth: 2,
-        borderDash: [6, 4],
+        borderDash: [8, 4],
         label: {
           display: true,
-          content: 'Good for swimming (5ft)',
-          position: 'start',
-          color: 'green',
+          content: 'Swimming depth (5 Ft)',
+          color: '#0d5c3a',
+          bgColor: 'rgba(209, 250, 229, 0.95)',
           font: { size: 12 }
         }
       };
@@ -227,211 +341,254 @@ hiloData.forEach(h => {
       annotations.cautionLine = {
         type: 'line',
         yMin: 4,
-        yMax: 4,
-        borderColor: 'yellow',
+        borderColor: '#c2410c',
         borderWidth: 2,
-        borderDash: [6, 4],
+        borderDash: [8, 4],
         label: {
           display: true,
-          content: 'Caution (4ft)',
-          position: 'start',
-          color: 'orange',
+          content: 'Caution zone (4 Ft)',
+          color: '#9a3412',
+          bgColor: 'rgba(255, 237, 213, 0.95)',
           font: { size: 12 }
         }
       };
     }
-    // END ANNOTATIONS
 
-    const ctx = document.getElementById('tideChart').getContext('2d');
+    const xMin = Math.max(0, predictionPoints[0].x - 30);
+    const xMax = predictionPoints[predictionPoints.length - 1].x + 30;
 
-    if (tideChart) {
-      tideChart.destroy();
-    }
+    const ctx = canvas.getContext('2d');
+    if (tideChart) tideChart.destroy();
 
     tideChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: labels,
         datasets: [
-  {
-    label: 'Tide Prediction (ft)',
-    data: predictionValues,
-    borderColor: '#1a6eb5',
-    backgroundColor: 'rgba(26, 110, 181, 0.1)',
-    fill: true,
-    tension: 0.4,
-    pointRadius: 0,
-    datalabels: { display: false }
-  },
-  {
-    label: 'Wave High Points',
-    data: waveHighPoints,
-    borderColor: 'transparent',
-    backgroundColor: '#006400',
-    pointRadius: 8,
-    pointHoverRadius: 10,
-    showLine: false,
-    datalabels: { display: false }
-  },
-  {
-    label: 'Wave Low Points',
-    data: waveLowPoints,
-    borderColor: 'transparent',
-    backgroundColor: '#b22222',
-    pointRadius: 8,
-    pointHoverRadius: 10,
-    showLine: false,
-    datalabels: { display: false }
-  },
-   {
-    label: 'Actual Water Level (ft)',
-    data: actualValues,
-    borderColor: '#000000',
-    backgroundColor: 'rgba(97, 97, 97, 0.1)',
-    fill: true,
-    tension: 0.4,
-    pointRadius: 0,
-    datalabels: { display: false }
-  },
-  {
-    label: 'Current Level (ft)',
-    data: currentDot,
-    borderColor: 'black',
-    backgroundColor: 'black',
-    pointRadius: 8,
-    pointHoverRadius: 10,
-    showLine: false,
-    datalabels: { display: false }  // ← add here
-  },
-  // Dataset 4 — prediction hilo points
-  {
-  label: 'Predicted High/Low',
-  data: predHiloDots,
-  borderColor: '#1a6eb5',
-  backgroundColor: '#1a6eb5',
-  pointRadius: 6,
-  pointHoverRadius: 8,
-  showLine: false,
-  datalabels: {
-    display: true,
-    align: 'top',
-    anchor: 'end',
-    color: '#1a6eb5',
-    font: { size: 11, weight: 'bold' },
-    formatter: (value, context) => {
-      if (value === null) return '';
-      const label = hiloLabels[context.dataIndex];
-      return label ? label : '';
-    }
-  }
-},
-// Dataset 5 — actual hilo points
-{
-  label: 'Actual High/Low',
-  data: actualHiloDots,
-  borderColor: '#555555',
-  backgroundColor: '#555555',
-  pointRadius: 6,
-  pointHoverRadius: 8,
-  showLine: false,
-  datalabels: {
-    display: true,
-    align: 'top',
-    anchor: 'end',
-    color: '#555555',
-    font: { size: 11, weight: 'bold' },
-    formatter: (value, context) => {
-      if (value === null) return '';
-      const label = hiloLabels[context.dataIndex];
-      return label ? label : '';
-    }
-  }
-}
+          {
+            label: 'Tide Prediction',
+            data: predictionPoints,
+            borderColor: '#1a6eb5',
+            backgroundColor: 'rgba(26, 110, 181, 0.12)',
+            fill: true,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHitRadius: 8,
+            datalabels: { display: false }
+          },
+          {
+            label: 'Actual Water Level',
+            data: actualLine,
+            borderColor: '#334155',
+            backgroundColor: 'rgba(51, 65, 85, 0.08)',
+            fill: true,
+            tension: 0.15,
+            pointRadius: 0,
+            spanGaps: false,
+            datalabels: { display: false }
+          },
+          {
+            type: 'scatter',
+            label: 'Wave Highs',
+            data: waveHighPoints,
+            borderColor: '#166534',
+            backgroundColor: '#166534',
+            pointRadius: 7,
+            pointHoverRadius: 9,
+            pointStyle: 'circle',
+            datalabels: { display: false }
+          },
+          {
+            type: 'scatter',
+            label: 'Wave Lows',
+            data: waveLowPoints,
+            borderColor: '#b91c1c',
+            backgroundColor: '#b91c1c',
+            pointRadius: 7,
+            pointHoverRadius: 9,
+            pointStyle: 'circle',
+            datalabels: { display: false }
+          },
+          {
+            type: 'scatter',
+            label: 'High / Low Tides',
+            data: hiloPoints,
+            borderColor: '#1a6eb5',
+            backgroundColor: '#ffffff',
+            borderWidth: 2,
+            pointRadius: 7,
+            pointHoverRadius: 9,
+            pointStyle: 'circle',
+            pointBorderWidth: 2,
+            pointBorderColor: '#1a6eb5',
+            datalabels: {
+              display: (ctx) => ctx.dataset.data[ctx.dataIndex] != null,
+              // High peaks sit near the top — label below; lows sit near the bottom — label above
+              align: (ctx) => ctx.dataset.data[ctx.dataIndex]?.type === 'H' ? 'bottom' : 'top',
+              anchor: (ctx) => {
+                const point = ctx.dataset.data[ctx.dataIndex];
+                if (!point || !ctx.chart?.scales?.x) return 'center';
+                const { min, max } = ctx.chart.scales.x;
+                const range = max - min || 1;
+                const rel = (point.x - min) / range;
+                if (rel < 0.06) return 'start';
+                if (rel > 0.94) return 'end';
+                return 'center';
+              },
+              offset: 10,
+              clamp: true,
+              color: '#0f4c81',
+              backgroundColor: 'rgba(255, 255, 255, 0.96)',
+              borderColor: '#94a3b8',
+              borderRadius: 6,
+              borderWidth: 1,
+              padding: { top: 3, bottom: 3, left: 5, right: 5 },
+              font: { size: 10, weight: '600' },
+              formatter: (_, ctx) => ctx.dataset.data[ctx.dataIndex]?.label || ''
+            }
+          },
+          {
+            type: 'scatter',
+            label: 'Right Now',
+            data: [currentPoint],
+            borderColor: '#ffffff',
+            backgroundColor: '#000000',
+            pointRadius: 8,
+            pointHoverRadius: 10,
+            pointStyle: 'circle',
+            pointBorderWidth: 2,
+            pointBorderColor: '#ffffff',
+            datalabels: {
+              display: true,
+              align: 'bottom',
+              anchor: 'center',
+              offset: 10,
+              clamp: true,
+              color: '#0f4c81',
+              backgroundColor: 'rgba(255, 255, 255, 0.96)',
+              borderColor: '#94a3b8',
+              borderWidth: 1,
+              borderRadius: 6,
+              padding: 5,
+              font: { size: 10, weight: '700' },
+              formatter: () => `Now · ${currentLevel.toFixed(2)} Ft`
+            }
+          }
         ]
       },
-  options: {
-  responsive: true,
-  plugins: {
-    legend: {
-      labels: {
-        font: { size: 14, family: 'sans-serif' }
-      }
-    },
-    tooltip: {
-      callbacks: {
-        label: function(context) {
-          const idx = context.dataIndex;
-          if (context.datasetIndex === 5 && hiloLabels[idx]) {
-            return hiloLabels[idx];
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        resizeDelay: 200,
+        animation: false,
+        interaction: { mode: 'nearest', intersect: false },
+        parsing: false,
+        elements: {
+          point: {
+            hoverRadius: 9
           }
-          if (context.datasetIndex === 6 && hiloLabels[idx]) {
-            return `Actual: ${hiloLabels[idx]}`;
+        },
+        layout: {
+          padding: { top: 36, right: 8, bottom: 36, left: 8 }
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              usePointStyle: true,
+              padding: 18,
+              font: { size: 12, family: '"Segoe UI", sans-serif' }
+            }
+          },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            titleFont: { size: 13 },
+            bodyFont: { size: 12 },
+            padding: 10,
+            callbacks: {
+              title: (items) => formatAxisTime(items[0].parsed.x),
+              label: (context) => {
+                const point = context.dataset.data[context.dataIndex];
+                if (point?.label) return point.label;
+                return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} Ft`;
+              }
+            }
+          },
+          customAnnotations: {
+            nowMinutes: nowMinutes,
+            annotations
           }
-          return `${context.parsed.y.toFixed(2)} ft`;
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            min: xMin,
+            max: xMax,
+            offset: false,
+            grid: { color: 'rgba(148, 163, 184, 0.2)' },
+            ticks: {
+              maxTicksLimit: 10,
+              padding: 6,
+              callback: (value) => formatAxisTime(value),
+              font: { size: 11 }
+            }
+          },
+          y: {
+            min: 0,
+            grace: '8%',
+            title: {
+              display: true,
+              text: 'Height (Ft)',
+              font: { size: 13, weight: '600' },
+              color: '#475569'
+            },
+            grid: { color: 'rgba(148, 163, 184, 0.25)' },
+            ticks: {
+              font: { size: 11 },
+              callback: (value) => value < 0 ? '' : value
+            }
+          }
         }
       }
-    },
-    customAnnotations: {
-      annotations: annotations
-    }
-  },
-  scales: {
-    x: {
-      ticks: {
-        maxTicksLimit: 24,
-        font: { size: 12, family: 'sans-serif' }
-      }
-    },
-    y: {
-      title: {
-        display: true,
-        text: 'Height (ft)',
-        font: { size: 14, weight: 'bold' }
-      },
-      ticks: {
-        font: { size: 12 }
-      }
-    }
-  }
-}
     });
-
+    const loadingEl = document.getElementById('chart-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
   } catch (err) {
     console.error('Chart error:', err);
+    chartRetryCount += 1;
+    const waitMs = Math.min(1000 * chartRetryCount, 5000);
+    showChartLoading('Waiting for complete tide data...');
+    setTimeout(drawTideChart, waitMs);
+  } finally {
+    chartDrawing = false;
   }
-  document.getElementById('chart-loading').style.display = 'none';
 }
 
 async function updateHiLo() {
-  const response = await fetch('/api/tides/hilo');
-  const predictions = await response.json();
+  const highEl = document.getElementById('next-high');
+  if (!highEl) return;
 
+  const response = await fetch('/api/tides/hilo');
+  if (!response.ok) return;
+
+  const predictions = await response.json();
   const now = new Date();
 
   const upcoming = predictions.filter(p => {
-    const [date, time] = p.t.split(' ');
+    const [, time] = p.t.split(' ');
     const [hours, minutes] = time.split(':');
     const predTime = new Date();
-    predTime.setHours(parseInt(hours), parseInt(minutes), 0);
+    predTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0);
     return predTime > now;
   });
 
   const nextHigh = upcoming.find(p => p.type === 'H');
   const nextLow = upcoming.find(p => p.type === 'L');
 
-  function formatTime(t) {
-    const [hours, minutes] = t.split(' ')[1].split(':');
-    const h = parseInt(hours);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    return `${h12}:${minutes} ${ampm}`;
-  }
-
   function timeUntil(t) {
-    const [date, time] = t.split(' ');
+    const [, time] = t.split(' ');
     const [hours, minutes] = time.split(':');
     const predTime = new Date();
-    predTime.setHours(parseInt(hours), parseInt(minutes), 0);
+    predTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0);
     const diffMs = predTime - now;
     const diffHrs = Math.floor(diffMs / 3600000);
     const diffMins = Math.floor((diffMs % 3600000) / 60000);
@@ -440,22 +597,28 @@ async function updateHiLo() {
 
   if (nextHigh) {
     document.getElementById('next-high').textContent =
-      `${timeUntil(nextHigh.t)} at ${formatTime(nextHigh.t)} (${parseFloat(nextHigh.v).toFixed(1)} ft)`;
+      `${timeUntil(nextHigh.t)} · ${formatClockTime(nextHigh.t.split(' ')[1])} (${parseFloat(nextHigh.v).toFixed(1)} Ft)`;
   }
 
   if (nextLow) {
     document.getElementById('next-low').textContent =
-      `${timeUntil(nextLow.t)} at ${formatTime(nextLow.t)} (${parseFloat(nextLow.v).toFixed(1)} ft)`;
+      `${timeUntil(nextLow.t)} · ${formatClockTime(nextLow.t.split(' ')[1])} (${parseFloat(nextLow.v).toFixed(1)} Ft)`;
   }
 }
 
 updateCurrentDate();
 
-drawTideChart();
-setInterval(drawTideChart, 360000); 
+const REFRESH_MS = 360000; // 6 min — matches NOAA's ~6-minute reading interval
 
-updateTideDisplay();
-setInterval(updateTideDisplay, 360000);
+if (document.getElementById('tideChart')) {
+  drawTideChart();
+  setInterval(drawTideChart, REFRESH_MS);
+} else if (document.getElementById('water-temp')) {
+  updateTideDisplay();
+  setInterval(updateTideDisplay, REFRESH_MS);
+}
 
-updateHiLo();
-setInterval(updateHiLo, 360000);
+if (document.getElementById('next-high')) {
+  updateHiLo();
+  setInterval(updateHiLo, REFRESH_MS);
+}
